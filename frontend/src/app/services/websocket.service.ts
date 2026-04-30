@@ -8,7 +8,13 @@ export class WebSocketService {
   private socket: WebSocket | null = null;
   private messageSubject = new Subject<any>();
   private connectionSubject = new Subject<boolean>();
-  private wsUrl = `ws://${window.location.hostname}:3000`;
+  private getWsUrl(): string {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.hostname;
+    const port = host === 'localhost' ? ':3000' : '';
+    return `${protocol}//${host}${port}`;
+  }
+  private wsUrl = this.getWsUrl();
 
   public message$ = this.messageSubject.asObservable();
   public connection$ = this.connectionSubject.asObservable();

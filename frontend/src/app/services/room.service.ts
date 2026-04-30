@@ -6,7 +6,13 @@ import { Observable } from 'rxjs';
   providedIn: 'root'
 })
 export class RoomService {
-  private apiUrl = `http://${window.location.hostname}:3000/api`;
+  private getApiUrl(): string {
+    const protocol = window.location.protocol;
+    const host = window.location.hostname;
+    const port = host === 'localhost' ? ':3000' : '';
+    return `${protocol}//${host}${port}/api`;
+  }
+  private apiUrl = this.getApiUrl();
 
   constructor(private http: HttpClient) { }
 
