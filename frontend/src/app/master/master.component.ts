@@ -5,6 +5,7 @@ import { takeUntil } from 'rxjs/operators';
 import { RoomService } from '../services/room.service';
 import { WebSocketService } from '../services/websocket.service';
 import { AudioService } from '../services/audio.service';
+import { AudioPlatformService, AudioSource } from '../services/audio-platform.service';
 
 @Component({
   selector: 'app-master',
@@ -428,7 +429,8 @@ export class MasterComponent implements OnInit, OnDestroy {
     private fb: FormBuilder,
     private roomService: RoomService,
     private wsService: WebSocketService,
-    private audioService: AudioService
+    private audioService: AudioService,
+    private platformService: AudioPlatformService
   ) {
     this.roomForm = this.fb.group({
       roomName: ['', [Validators.required, Validators.minLength(3)]],
@@ -554,11 +556,37 @@ export class MasterComponent implements OnInit, OnDestroy {
   }
 
   setAudioUrl(): void {
-    if (this.audioUrl) {
-      this.audioService.setAudioSource(this.audioUrl);
-      this.currentTrack.title = this.audioUrl;
+    if (!this.audioUrl) return;
+
+    // Detectar plataforma de audio automáticamente
+    const audioSource = this.platformService.detectAudioSource(this.audioUrl);
+    
+    console.log(`[AUDIO] Detectado: ${audioSource.platform || 'URL Directo'}`, audioSource);
+
+    // Obtener URL reproducible
+    const playableUrl = this.platformService.getPlayableUrl(audioSource);
+
+    if (playableUrl) {
+      this.audioService.setAudioSource(playableUrl);
+      
+      // Mostrar información de la plataforma
+      this.currentTrack.title = audioSource.title || this.platformService.formatPlatformInfo(audioSource);
+      this.currentTrack.artist = audioSource.artist || (audioSource.platform || 'Audio');
       this.currentTrack.source = this.audioUrl;
-      this.broadcastTrackChange();
+
+      // Obtener metadatos si están disponibles
+      this.platformService.fetchMetadata(audioSource).subscribe({
+        next: (metadata) => {
+          if (metadata) {
+            this.currentTrack.title = metadata.title;
+            this.currentTrack.artist = metadata.artist;
+          }
+          this.broadcastTrackChange();
+        },
+        error: () => this.broadcastTrackChange()
+      });
+    } else {
+      console.error('[AUDIO] No se pudo obtener URL reproducible');
     }
   }
 
