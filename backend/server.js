@@ -378,24 +378,8 @@ wss.on('connection', (socket) => {
 });
 
 // ============ STATIC FILES ============
-app.get('/', (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>MusicFollow - Audio Sincronizado</title>
-      <style>
-        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-        h1 { color: #333; }
-      </style>
-    </head>
-    <body>
-      <h1>🎵 MusicFollow Backend</h1>
-      <p>Servidor ejecutándose en puerto ${PORT}</p>
-      <p><a href="/api/rooms">API Documentación</a></p>
-    </body>
-    </html>
-  `);
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // ============ CLEANUP ============
