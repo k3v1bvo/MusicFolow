@@ -165,7 +165,10 @@ import { WebRtcService } from '../services/webrtc.service';
   styles: [`
     .slave-wrap {
       position: relative; width: 100%; min-height: 100vh;
-      padding: 16px; overflow-x: hidden;
+      padding: 16px;
+      display: flex; flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
     }
     .bg-grid {
       position: fixed; inset: 0; z-index: 0;

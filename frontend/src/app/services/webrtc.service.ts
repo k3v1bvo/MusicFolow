@@ -23,6 +23,17 @@ export class WebRtcService {
 
   // ─── MASTER ──────────────────────────────────────────────
 
+  /** Establece un stream externo (ej: audio del sistema via getDisplayMedia) */
+  setSystemAudioStream(stream: MediaStream): void {
+    // Detener stream anterior si existe
+    if (this.localStream) {
+      this.localStream.getTracks().forEach(t => t.stop());
+    }
+    this.localStream = stream;
+    this.role = 'master';
+    console.log('[WebRTC] Stream del sistema configurado');
+  }
+
   /** Captura el stream del elemento <audio> del master */
   async captureAudioElement(audioElement: HTMLAudioElement): Promise<void> {
     try {

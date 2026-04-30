@@ -146,11 +146,20 @@ import { WebRtcService } from '../services/webrtc.service';
 
             <!-- Load audio -->
             <div class="load-section">
-              <label class="field-label">Cargar archivo de audio</label>
+              <p class="section-title">Fuente de Audio</p>
+
+              <!-- System Audio (desktop) -->
+              <button class="btn-neon btn-cyan full-btn" (click)="captureSystemAudio()" style="margin-bottom:10px">
+                {{ isCapturingSystem ? '🔴 Transmitiendo sistema...' : '🖥️ Capturar Audio del Sistema' }}
+              </button>
+              <p class="hint-text">En PC: comparte el audio de tu sistema operativo (como Bluetooth)</p>
+
+              <div class="divider-row"><span>o</span></div>
+
               <label class="file-drop">
                 <input type="file" accept="audio/*" (change)="onFileSelected($event)" style="display:none">
                 <span class="file-icon">📂</span>
-                <span class="file-text">{{ currentTrack.title || 'Seleccionar archivo' }}</span>
+                <span class="file-text">{{ currentTrack.title || 'Cargar archivo MP3/audio' }}</span>
               </label>
             </div>
 
@@ -164,7 +173,10 @@ import { WebRtcService } from '../services/webrtc.service';
   styles: [`
     .master-wrap {
       position: relative; width: 100%; min-height: 100vh;
-      padding: 16px; overflow-x: hidden;
+      padding: 16px;
+      display: flex; flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
     }
     .bg-grid {
       position: fixed; inset: 0; z-index: 0;
@@ -283,6 +295,7 @@ export class MasterComponent implements OnInit, OnDestroy {
   currentTrack = { title: '', artist: '', source: '' };
   currentTimeDisplay = '0:00';
   durationDisplay   = '0:00';
+  isCapturingSystem = false;
 
   private destroy$ = new Subject<void>();
   private audioElement: HTMLAudioElement | null = null;
@@ -368,12 +381,42 @@ export class MasterComponent implements OnInit, OnDestroy {
   onFileSelected(event: any): void {
     const file = event.target.files[0];
     if (file && this.audioElement) {
+      this.isCapturingSystem = false;
       this.audioService.loadFile(file);
       this.currentTrack.title = file.name;
       this.webRtcService.captureAudioElement(this.audioElement).then(() => {
         this.slaves.forEach(s => this.webRtcService.connectToSlave(s.id));
       });
       this.broadcastTrackChange();
+    }
+  }
+
+  async captureSystemAudio(): Promise<void> {
+    try {
+      const stream = await (navigator.mediaDevices as any).getDisplayMedia({
+        video: { frameRate: 1 },
+        audio: { echoCancellation: false, noiseSuppression: false, sampleRate: 44100 }
+      });
+      const audioTracks = stream.getAudioTracks();
+      if (audioTracks.length === 0) {
+        alert('No se capturó audio. Asegúrate de marcar "Compartir audio del sistema" en el diálogo.');
+        stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+        return;
+      }
+      // Detener video (no lo necesitamos)
+      stream.getVideoTracks().forEach((t: MediaStreamTrack) => t.stop());
+      const audioStream = new MediaStream(audioTracks);
+      this.webRtcService.setSystemAudioStream(audioStream);
+      this.slaves.forEach(s => this.webRtcService.connectToSlave(s.id));
+      this.isCapturingSystem = true;
+      this.currentTrack.title = '🖥️ Audio del sistema';
+      this.broadcastTrackChange();
+      // Detectar cuando el usuario deja de compartir
+      audioTracks[0].onended = () => { this.isCapturingSystem = false; };
+    } catch (e: any) {
+      if (e.name !== 'NotAllowedError') {
+        alert('Error capturando audio del sistema: ' + e.message);
+      }
     }
   }
 
