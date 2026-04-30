@@ -1,33 +1,22 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "backend/server.js",
-      "use": "@vercel/node",
-      "config": {
-        "maxLambdaSize": "50mb"
-      }
-    },
-    {
-      "src": "frontend/angular.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "frontend/dist/musicfollow"
-      }
+  "functions": {
+    "backend/server.js": {
+      "maxDuration": 10
     }
-  ],
+  },
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/dist/musicfollow",
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "backend/server.js"
+      "dest": "/backend/server.js"
     },
     {
       "src": "/(.*)",
-      "dest": "frontend/dist/musicfollow/index.html"
+      "dest": "/index.html"
     }
   ],
   "env": {
-    "NODE_ENV": "production",
-    "PORT": "3000"
+    "NODE_ENV": "production"
   }
 }
