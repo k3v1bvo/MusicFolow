@@ -4,6 +4,7 @@ import { takeUntil } from 'rxjs/operators';
 import { RoomService } from '../services/room.service';
 import { WebSocketService } from '../services/websocket.service';
 import { AudioService } from '../services/audio.service';
+import { WebRtcService } from '../services/webrtc.service';
 
 @Component({
   selector: 'app-slave',
@@ -117,7 +118,7 @@ import { AudioService } from '../services/audio.service';
           </div>
         </div>
 
-        <audio #audioPlayer autoplay></audio>
+        <audio #audioPlayer id="slave-audio" autoplay playsinline></audio>
       </div>
     </div>
   `,
@@ -454,7 +455,8 @@ export class SlaveComponent implements OnInit, OnDestroy {
   constructor(
     private roomService: RoomService,
     private wsService: WebSocketService,
-    private audioService: AudioService
+    private audioService: AudioService,
+    private webRtcService: WebRtcService
   ) { }
 
   ngOnInit(): void {
@@ -489,9 +491,38 @@ export class SlaveComponent implements OnInit, OnDestroy {
   }
 
   startQrScanner(): void {
-    // Implementar QR scanner con html5-qrcode en la próxima fase
-    console.log('QR Scanner no implementado aún');
-    this.qrError = 'Escaneo de QR en desarrollo. Usa entrada manual por ahora.';
+    // Usar html5-qrcode para escanear desde la cámara
+    import('html5-qrcode').then(({ Html5Qrcode }) => {
+      const scanner = new Html5Qrcode('qr-video');
+      scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        (decodedText: string) => {
+          // Extraer roomId de la URL del QR
+          try {
+            const url = new URL(decodedText);
+            const roomId = url.searchParams.get('room');
+            if (roomId) {
+              this.manualRoomId = roomId;
+              scanner.stop().then(() => {
+                this.showQrScanner = false;
+                this.joinRoom();
+              });
+            }
+          } catch {
+            // Si no es una URL válida, intentar usar el texto directamente
+            this.manualRoomId = decodedText.trim();
+            scanner.stop().then(() => {
+              this.showQrScanner = false;
+              this.joinRoom();
+            });
+          }
+        },
+        (err: any) => { /* ignorar errores de frame */ }
+      ).catch((err: any) => {
+        this.qrError = 'No se pudo acceder a la cámara: ' + err;
+      });
+    });
   }
 
   joinRoom(): void {
@@ -580,6 +611,29 @@ export class SlaveComponent implements OnInit, OnDestroy {
         this.masterDeviceName = payload.room.masterDeviceName || 'Maestro';
         this.masterConnected = payload.room.masterConnected;
         console.log('[SLAVE] Conectado a sala:', payload.roomId);
+
+        // Iniciar WebRTC — el servicio enviará webrtc:request-connection
+        this.webRtcService.initAsSlave();
+
+        // Cuando llegue el stream del master, asignarlo al elemento audio
+        this.webRtcService.remoteStream$.pipe(
+          takeUntil(this.destroy$)
+        ).subscribe((stream: MediaStream) => {
+          const audioEl = document.getElementById('slave-audio') as HTMLAudioElement;
+          if (audioEl) {
+            audioEl.srcObject = stream;
+            audioEl.play().catch(e => console.error('Error playing remote stream:', e));
+            console.log('[WebRTC] Reproduciendo stream del master');
+          }
+        });
+      }
+
+      else if (type === 'webrtc:offer') {
+        this.webRtcService.handleOffer(payload.offer);
+      }
+
+      else if (type === 'webrtc:ice') {
+        this.webRtcService.addSlaveCandidateFromMaster(payload.candidate);
       }
 
       else if (type === 'sync:update') {
@@ -690,6 +744,7 @@ export class SlaveComponent implements OnInit, OnDestroy {
     if (this.syncCheckInterval) clearInterval(this.syncCheckInterval);
     this.wsService.disconnect();
     this.audioService.destroy();
+    this.webRtcService.destroy();
   }
 
   ngOnDestroy(): void {

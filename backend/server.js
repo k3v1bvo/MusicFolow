@@ -104,7 +104,8 @@ app.post('/api/rooms', async (req, res) => {
     const room = new RoomState(roomId, name.trim(), password || null);
 
     // Generar QR
-    const qrUrl = `${process.env.APP_URL || `http://${HOST}:${PORT}`}/join?room=${roomId}`;
+    const appUrl = process.env.APP_URL || `http://${HOST}:${PORT}`;
+    const qrUrl = `${appUrl}/join?room=${roomId}`;
     room.qrCode = await qrcode.toDataURL(qrUrl);
 
     rooms.set(roomId, room);
@@ -251,6 +252,7 @@ wss.on('connection', (socket) => {
         roomId = room_id;
         const slaveId = uuidv4().substring(0, 8);
         room.addSlave(slaveId, socket, device_name);
+        socket.slaveId = slaveId; // guardar para señalización WebRTC
 
         socket.send(JSON.stringify({
           type: 'slave:connected',
@@ -270,6 +272,46 @@ wss.on('connection', (socket) => {
         room.sendToMaster('slaves:updated', { slaves: room.getSlavesList() });
 
         console.log(`[SLAVE CONNECTED] Room: ${room_id}, Device: ${device_name}, SlaveID: ${slaveId}`);
+      }
+
+      // ===== WEBRTC SIGNALING =====
+      else if (type === 'webrtc:request-connection') {
+        const room = rooms.get(roomId);
+        if (room && socketRole === 'slave') {
+          room.sendToMaster('webrtc:request-connection', { slaveId: socket.slaveId });
+        }
+      }
+
+      else if (type === 'webrtc:offer') {
+        const room = rooms.get(roomId);
+        if (room && socketRole === 'master') {
+          const { slaveId, offer } = payload;
+          const slaveData = room.slaveSockets.get(slaveId);
+          if (slaveData && slaveData.socket.readyState === WebSocket.OPEN) {
+            slaveData.socket.send(JSON.stringify({ type: 'webrtc:offer', payload: { offer } }));
+          }
+        }
+      }
+
+      else if (type === 'webrtc:answer') {
+        const room = rooms.get(roomId);
+        if (room && socketRole === 'slave') {
+          room.sendToMaster('webrtc:answer', { slaveId: socket.slaveId, answer: payload.answer });
+        }
+      }
+
+      else if (type === 'webrtc:ice') {
+        const room = rooms.get(roomId);
+        if (!room) return;
+        if (socketRole === 'master') {
+          const { slaveId, candidate } = payload;
+          const slaveData = room.slaveSockets.get(slaveId);
+          if (slaveData && slaveData.socket.readyState === WebSocket.OPEN) {
+            slaveData.socket.send(JSON.stringify({ type: 'webrtc:ice', payload: { candidate } }));
+          }
+        } else if (socketRole === 'slave') {
+          room.sendToMaster('webrtc:ice', { slaveId: socket.slaveId, candidate: payload.candidate });
+        }
       }
 
       // ===== PLAYBACK EVENTS (MAESTRO) =====

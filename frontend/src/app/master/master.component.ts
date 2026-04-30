@@ -6,6 +6,7 @@ import { RoomService } from '../services/room.service';
 import { WebSocketService } from '../services/websocket.service';
 import { AudioService } from '../services/audio.service';
 import { AudioPlatformService, AudioSource } from '../services/audio-platform.service';
+import { WebRtcService } from '../services/webrtc.service';
 
 @Component({
   selector: 'app-master',
@@ -430,7 +431,8 @@ export class MasterComponent implements OnInit, OnDestroy {
     private roomService: RoomService,
     private wsService: WebSocketService,
     private audioService: AudioService,
-    private platformService: AudioPlatformService
+    private platformService: AudioPlatformService,
+    private webRtcService: WebRtcService
   ) {
     this.roomForm = this.fb.group({
       roomName: ['', [Validators.required, Validators.minLength(3)]],
@@ -514,6 +516,13 @@ export class MasterComponent implements OnInit, OnDestroy {
 
       if (type === 'slaves:updated') {
         this.slaves = payload.slaves || [];
+      } else if (type === 'webrtc:request-connection') {
+        // Un slave pide conexión WebRTC → iniciar como master
+        this.webRtcService.connectToSlave(payload.slaveId);
+      } else if (type === 'webrtc:answer') {
+        this.webRtcService.handleAnswer(payload.slaveId, payload.answer);
+      } else if (type === 'webrtc:ice') {
+        this.webRtcService.addIceCandidate(payload.slaveId, payload.candidate);
       } else if (type === 'error') {
         console.error('Error del servidor:', payload.message);
       }
@@ -548,9 +557,16 @@ export class MasterComponent implements OnInit, OnDestroy {
 
   onFileSelected(event: any): void {
     const file = event.target.files[0];
-    if (file) {
+    if (file && this.audioElement) {
       this.audioService.loadFile(file);
       this.currentTrack.title = file.name;
+      // Capturar el stream del audio element para WebRTC
+      this.webRtcService.captureAudioElement(this.audioElement).then(() => {
+        // Si ya hay slaves conectados, reconectarlos con stream
+        this.slaves.forEach(slave => {
+          this.webRtcService.connectToSlave(slave.id);
+        });
+      });
       this.broadcastTrackChange();
     }
   }
@@ -650,6 +666,7 @@ export class MasterComponent implements OnInit, OnDestroy {
     if (this.syncInterval) clearInterval(this.syncInterval);
     this.wsService.disconnect();
     this.audioService.destroy();
+    this.webRtcService.destroy();
   }
 
   ngOnDestroy(): void {
