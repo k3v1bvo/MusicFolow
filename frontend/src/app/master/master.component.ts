@@ -5,396 +5,263 @@ import { takeUntil } from 'rxjs/operators';
 import { RoomService } from '../services/room.service';
 import { WebSocketService } from '../services/websocket.service';
 import { AudioService } from '../services/audio.service';
-import { AudioPlatformService, AudioSource } from '../services/audio-platform.service';
+import { AudioPlatformService } from '../services/audio-platform.service';
 import { WebRtcService } from '../services/webrtc.service';
 
 @Component({
   selector: 'app-master',
   template: `
-    <div class="master-container">
-      <div *ngIf="!roomCreated" class="create-room-panel">
-        <h1>👑 Modo Maestro</h1>
-        <form [formGroup]="roomForm" (ngSubmit)="createRoom()">
-          <div class="form-group">
-            <label>Nombre de la Sala:</label>
-            <input 
-              type="text" 
-              formControlName="roomName" 
-              placeholder="Ej: Fiesta Viernes"
-              class="input-field"
-            >
+    <div class="master-wrap">
+      <!-- Background -->
+      <div class="bg-grid"></div>
+      <div class="bg-glow bg-glow-1"></div>
+      <div class="bg-glow bg-glow-2"></div>
+
+      <!-- ── CREATE ROOM ── -->
+      <div *ngIf="!roomCreated" class="center-panel animate-fade-up">
+        <div class="glass-card panel">
+
+          <div class="panel-header">
+            <div class="panel-icon">👑</div>
+            <div>
+              <h1 class="panel-title">Modo Anfitrión</h1>
+              <p class="panel-subtitle">Crea tu sala de audio sincronizado</p>
+            </div>
           </div>
 
-          <div class="form-group">
-            <label>Contraseña (Opcional):</label>
-            <input 
-              type="password" 
-              formControlName="password" 
-              placeholder="Dejar vacío para sala abierta"
-              class="input-field"
-            >
-          </div>
+          <form [formGroup]="roomForm" (ngSubmit)="createRoom()">
+            <div class="field">
+              <label class="field-label">Nombre de la Sala</label>
+              <input type="text" formControlName="roomName"
+                placeholder="Ej: Fiesta del viernes"
+                class="neon-input" autocomplete="off">
+            </div>
+            <div class="field">
+              <label class="field-label">Contraseña <span class="optional">(opcional)</span></label>
+              <input type="password" formControlName="password"
+                placeholder="Dejar vacío para sala pública"
+                class="neon-input">
+            </div>
+            <button type="submit" class="btn-neon btn-cyan full-btn"
+              [disabled]="!roomForm.valid || isCreating">
+              {{ isCreating ? '⏳ Creando...' : '✨ Crear Sala' }}
+            </button>
+          </form>
 
-          <button type="submit" class="btn btn-primary" [disabled]="!roomForm.valid || isCreating">
-            {{ isCreating ? 'Creando...' : '✨ Crear Sala' }}
-          </button>
-        </form>
-
-        <div *ngIf="errorMessage" class="error-message">
-          {{ errorMessage }}
+          <div *ngIf="errorMessage" class="error-banner">⚠ {{ errorMessage }}</div>
         </div>
       </div>
 
-      <div *ngIf="roomCreated" class="room-panel">
-        <div class="room-header">
-          <h1>{{ roomName }}</h1>
-          <button class="btn btn-secondary" (click)="exitRoom()">← Salir</button>
+      <!-- ── ROOM DASHBOARD ── -->
+      <div *ngIf="roomCreated" class="dashboard animate-fade-up">
+
+        <!-- Top bar -->
+        <div class="topbar">
+          <div class="room-badge">
+            <span class="badge badge-cyan"><span class="badge-dot"></span> EN VIVO</span>
+            <span class="room-name">{{ roomName }}</span>
+          </div>
+          <button class="btn-neon btn-ghost exit-btn" (click)="exitRoom()">← Salir</button>
         </div>
 
-        <div class="qr-section">
-          <h2>Código QR para Esclavos</h2>
-          <img [src]="qrCode" alt="QR Code" class="qr-image">
-          <p class="room-id">ID: {{ roomId }}</p>
+        <!-- Grid -->
+        <div class="grid">
+
+          <!-- QR + Info -->
+          <div class="glass-card qr-card">
+            <p class="section-title">Código de acceso</p>
+            <div class="qr-wrap">
+              <img [src]="qrCode" alt="QR" class="qr-img">
+            </div>
+            <div class="room-id-row">
+              <span class="room-id-label">ID:</span>
+              <span class="room-id-val">{{ roomId }}</span>
+            </div>
+            <p class="qr-hint">Los receptores escanean este QR para unirse</p>
+          </div>
+
+          <!-- Slaves -->
+          <div class="glass-card slaves-card">
+            <p class="section-title">Receptores conectados</p>
+            <div class="slaves-count">
+              <span class="count-num">{{ slaves.length }}</span>
+              <span class="count-label">en línea</span>
+            </div>
+            <div class="slaves-list" *ngIf="slaves.length > 0">
+              <div class="slave-item" *ngFor="let s of slaves">
+                <span class="slave-dot"></span>
+                <span class="slave-name">{{ s.name }}</span>
+              </div>
+            </div>
+            <div class="empty-slaves" *ngIf="slaves.length === 0">
+              <div class="empty-icon">🎧</div>
+              <p>Esperando receptores…</p>
+            </div>
+          </div>
+
+          <!-- Player -->
+          <div class="glass-card player-card">
+            <p class="section-title">Reproductor</p>
+
+            <!-- Track info -->
+            <div class="track-info">
+              <div class="waveform" [class.paused]="!isPlaying">
+                <div class="waveform-bar"></div><div class="waveform-bar"></div>
+                <div class="waveform-bar"></div><div class="waveform-bar"></div>
+                <div class="waveform-bar"></div><div class="waveform-bar"></div>
+                <div class="waveform-bar"></div>
+              </div>
+              <div class="track-meta">
+                <p class="track-title">{{ currentTrack.title || 'Sin reproducción' }}</p>
+                <p class="track-artist">{{ currentTrack.artist || '—' }}</p>
+              </div>
+            </div>
+
+            <!-- Progress -->
+            <div class="progress-area">
+              <div class="progress-track">
+                <div class="progress-fill" [style.width.%]="progressPercent"></div>
+              </div>
+              <div class="time-row">
+                <span>{{ currentTimeDisplay }}</span>
+                <span>{{ durationDisplay }}</span>
+              </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="controls">
+              <button class="ctrl-btn" (click)="previousTrack()">⏮</button>
+              <button class="ctrl-btn ctrl-play" (click)="togglePlay()">
+                {{ isPlaying ? '⏸' : '▶' }}
+              </button>
+              <button class="ctrl-btn" (click)="nextTrack()">⏭</button>
+            </div>
+
+            <!-- Volume -->
+            <div class="volume-row">
+              <span class="vol-icon">🔈</span>
+              <input type="range" min="0" max="100" [(ngModel)]="volume" (change)="setVolume()" style="flex:1">
+              <span class="vol-val">{{ volume }}%</span>
+            </div>
+
+            <!-- Load audio -->
+            <div class="load-section">
+              <label class="field-label">Cargar archivo de audio</label>
+              <label class="file-drop">
+                <input type="file" accept="audio/*" (change)="onFileSelected($event)" style="display:none">
+                <span class="file-icon">📂</span>
+                <span class="file-text">{{ currentTrack.title || 'Seleccionar archivo' }}</span>
+              </label>
+            </div>
+
+            <audio #audioPlayer id="master-audio"></audio>
+          </div>
+
         </div>
-
-        <div class="slaves-section">
-          <h3>Esclavos Conectados ({{ slaves.length }})</h3>
-          <ul class="slaves-list">
-            <li *ngFor="let slave of slaves" class="slave-item">
-              🎧 {{ slave.name }}
-            </li>
-            <li *ngIf="slaves.length === 0" class="no-slaves">
-              Esperando esclavos...
-            </li>
-          </ul>
-        </div>
-
-        <div class="player-section">
-          <h2>Reproductor</h2>
-          
-          <div class="file-input-group">
-            <label>Cargar Archivo de Audio:</label>
-            <input 
-              type="file" 
-              accept="audio/*" 
-              (change)="onFileSelected($event)"
-              class="file-input"
-            >
-          </div>
-
-          <div class="url-input-group">
-            <label>O Usar URL:</label>
-            <input 
-              type="text" 
-              placeholder="https://ejemplo.com/audio.mp3"
-              [(ngModel)]="audioUrl"
-              class="input-field"
-            >
-            <button (click)="setAudioUrl()" class="btn btn-secondary">Cargar URL</button>
-          </div>
-
-          <div class="player-controls">
-            <button class="btn btn-control" (click)="togglePlay()">
-              {{ isPlaying ? '⏸ Pausar' : '▶ Reproducir' }}
-            </button>
-            <button class="btn btn-control" (click)="previousTrack()">⏮ Anterior</button>
-            <button class="btn btn-control" (click)="nextTrack()">Siguiente ⏭</button>
-          </div>
-
-          <div class="volume-control">
-            <label>Volumen:</label>
-            <input 
-              type="range" 
-              min="0" 
-              max="100" 
-              [(ngModel)]="volume"
-              (change)="setVolume()"
-              class="volume-slider"
-            >
-            <span>{{ volume }}%</span>
-          </div>
-
-          <div class="progress-bar">
-            <div class="progress" [style.width.%]="progressPercent"></div>
-          </div>
-          <div class="time-display">{{ currentTimeDisplay }} / {{ durationDisplay }}</div>
-
-          <div class="track-info">
-            <p><strong>Pista Actual:</strong> {{ currentTrack.title || 'Sin reproducción' }}</p>
-            <p><strong>Artista:</strong> {{ currentTrack.artist || '-' }}</p>
-          </div>
-        </div>
-
-        <audio #audioPlayer></audio>
       </div>
     </div>
   `,
   styles: [`
-    .master-container {
-      width: 100%;
-      min-height: 100vh;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      padding: 20px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    .master-wrap {
+      position: relative; width: 100%; min-height: 100vh;
+      padding: 16px; overflow-x: hidden;
     }
-
-    .create-room-panel, .room-panel {
-      background: white;
-      border-radius: 20px;
-      padding: 40px;
-      max-width: 800px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    .bg-grid {
+      position: fixed; inset: 0; z-index: 0;
+      background-image: linear-gradient(rgba(0,245,255,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,245,255,0.04) 1px, transparent 1px);
+      background-size: 50px 50px;
     }
+    .bg-glow { position: fixed; border-radius: 50%; filter: blur(120px); z-index: 0; pointer-events: none; }
+    .bg-glow-1 { width: 400px; height: 400px; background: radial-gradient(circle, rgba(0,245,255,0.1), transparent 70%); top: -100px; left: -100px; }
+    .bg-glow-2 { width: 400px; height: 400px; background: radial-gradient(circle, rgba(191,0,255,0.08), transparent 70%); bottom: -100px; right: -100px; }
 
-    h1 {
-      color: #667eea;
-      margin-bottom: 30px;
-      text-align: center;
+    /* Create Room Panel */
+    .center-panel { position: relative; z-index: 1; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .panel { width: 100%; max-width: 460px; padding: 36px; }
+    .panel-header { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; }
+    .panel-icon { font-size: 2.5rem; }
+    .panel-title { font-family: var(--font-display); font-size: 1.4rem; font-weight: 700; color: #fff; }
+    .panel-subtitle { font-size: 0.85rem; color: var(--text-muted); margin-top: 4px; }
+
+    .field { margin-bottom: 20px; }
+    .field-label { display: block; font-size: 0.8rem; font-weight: 500; color: var(--text-muted); margin-bottom: 8px; letter-spacing: 0.5px; }
+    .optional { color: rgba(226,232,240,0.3); font-weight: 400; }
+    .full-btn { width: 100%; margin-top: 8px; font-size: 1rem; padding: 16px; }
+
+    .error-banner { background: rgba(255,0,110,0.1); border: 1px solid rgba(255,0,110,0.3); color: #ff6b9d; border-radius: 10px; padding: 12px 16px; margin-top: 16px; font-size: 0.9rem; }
+
+    /* Dashboard */
+    .dashboard { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; padding: 16px 4px; margin-bottom: 20px; }
+    .room-badge { display: flex; align-items: center; gap: 12px; }
+    .room-name { font-family: var(--font-display); font-size: 1.1rem; font-weight: 700; color: #fff; }
+    .exit-btn { padding: 10px 20px; font-size: 0.85rem; }
+
+    .grid { display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 16px; }
+
+    /* QR Card */
+    .qr-card { padding: 24px; display: flex; flex-direction: column; align-items: center; }
+    .qr-wrap { margin: 16px 0; }
+    .qr-img { width: 200px; height: 200px; border-radius: 12px; border: 2px solid rgba(0,245,255,0.3); padding: 8px; background: #fff; }
+    .room-id-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .room-id-label { font-size: 0.75rem; color: var(--text-muted); }
+    .room-id-val { font-family: var(--font-display); font-size: 0.85rem; color: var(--neon-cyan); letter-spacing: 1px; }
+    .qr-hint { font-size: 0.78rem; color: var(--text-muted); text-align: center; }
+
+    /* Slaves Card */
+    .slaves-card { padding: 24px; }
+    .slaves-count { display: flex; align-items: baseline; gap: 8px; margin: 12px 0 16px; }
+    .count-num { font-family: var(--font-display); font-size: 2.5rem; font-weight: 900; color: var(--neon-cyan); line-height: 1; }
+    .count-label { font-size: 0.85rem; color: var(--text-muted); }
+    .slaves-list { display: flex; flex-direction: column; gap: 8px; }
+    .slave-item { display: flex; align-items: center; gap: 10px; background: rgba(0,245,255,0.05); border: 1px solid rgba(0,245,255,0.1); border-radius: 10px; padding: 10px 14px; }
+    .slave-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--neon-green); box-shadow: 0 0 8px var(--neon-green); flex-shrink: 0; }
+    .slave-name { font-size: 0.85rem; color: var(--text-primary); }
+    .empty-slaves { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 0; color: var(--text-muted); font-size: 0.85rem; }
+    .empty-icon { font-size: 2rem; }
+
+    /* Player Card */
+    .player-card { padding: 24px; grid-column: 3; }
+
+    .track-info { display: flex; align-items: center; gap: 16px; margin: 16px 0; padding: 16px; background: rgba(255,255,255,0.03); border-radius: 12px; }
+    .track-meta { flex: 1; min-width: 0; }
+    .track-title { font-size: 0.95rem; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .track-artist { font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
+
+    .progress-area { margin: 16px 0 20px; }
+    .time-row { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-top: 6px; }
+
+    .controls { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 20px; }
+    .ctrl-btn { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 50%; width: 44px; height: 44px; cursor: pointer; font-size: 1.1rem; color: var(--text-primary); transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
+    .ctrl-btn:hover { background: rgba(0,245,255,0.12); border-color: var(--neon-cyan); color: var(--neon-cyan); }
+    .ctrl-play { width: 60px; height: 60px; font-size: 1.4rem; background: linear-gradient(135deg, rgba(0,245,255,0.2), rgba(0,128,255,0.2)); border-color: rgba(0,245,255,0.5); color: var(--neon-cyan); box-shadow: 0 0 20px rgba(0,245,255,0.2); }
+    .ctrl-play:hover { box-shadow: 0 0 35px rgba(0,245,255,0.5); }
+
+    .volume-row { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    .vol-icon { font-size: 1rem; }
+    .vol-val { font-size: 0.8rem; color: var(--text-muted); min-width: 36px; text-align: right; }
+
+    .load-section { border-top: 1px solid rgba(255,255,255,0.06); padding-top: 20px; }
+    .file-drop {
+      display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 8px;
+      background: rgba(255,255,255,0.03); border: 1px dashed rgba(0,245,255,0.3); border-radius: 12px;
+      padding: 16px; cursor: pointer; transition: all 0.3s;
     }
+    .file-drop:hover { background: rgba(0,245,255,0.05); border-color: var(--neon-cyan); }
+    .file-icon { font-size: 1.3rem; }
+    .file-text { font-size: 0.85rem; color: var(--text-muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-    h2 {
-      color: #333;
-      margin-top: 30px;
-      margin-bottom: 20px;
+    /* Responsive */
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr 1fr; }
+      .player-card { grid-column: 1 / -1; }
     }
-
-    h3 {
-      color: #555;
-      margin-bottom: 15px;
-    }
-
-    .form-group {
-      margin-bottom: 20px;
-    }
-
-    label {
-      display: block;
-      margin-bottom: 8px;
-      color: #666;
-      font-weight: bold;
-    }
-
-    .input-field {
-      width: 100%;
-      padding: 12px;
-      border: 2px solid #ddd;
-      border-radius: 8px;
-      font-size: 1rem;
-      transition: border-color 0.3s;
-    }
-
-    .input-field:focus {
-      outline: none;
-      border-color: #667eea;
-    }
-
-    .btn {
-      padding: 12px 24px;
-      border: none;
-      border-radius: 8px;
-      font-weight: bold;
-      cursor: pointer;
-      transition: transform 0.2s, box-shadow 0.2s;
-    }
-
-    .btn:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
-    }
-
-    .btn:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-
-    .btn-primary {
-      width: 100%;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      font-size: 1.1rem;
-      padding: 15px;
-    }
-
-    .btn-secondary {
-      background: #f0f0f0;
-      color: #333;
-    }
-
-    .btn-control {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      flex: 1;
-      padding: 12px;
-      font-size: 1rem;
-    }
-
-    .error-message {
-      color: #d32f2f;
-      background: #ffebee;
-      padding: 15px;
-      border-radius: 8px;
-      margin-top: 20px;
-      text-align: center;
-    }
-
-    .room-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 30px;
-      padding-bottom: 20px;
-      border-bottom: 2px solid #eee;
-    }
-
-    .room-header h1 {
-      margin: 0;
-      flex: 1;
-    }
-
-    .qr-section {
-      text-align: center;
-      padding: 30px;
-      background: #f5f5f5;
-      border-radius: 10px;
-      margin-bottom: 30px;
-    }
-
-    .qr-image {
-      max-width: 300px;
-      margin: 20px 0;
-      border: 3px solid #667eea;
-      border-radius: 10px;
-      padding: 10px;
-      background: white;
-    }
-
-    .room-id {
-      color: #999;
-      margin-top: 15px;
-      font-size: 0.9rem;
-      font-family: monospace;
-    }
-
-    .slaves-section {
-      background: #f9f9f9;
-      padding: 20px;
-      border-radius: 10px;
-      margin-bottom: 30px;
-    }
-
-    .slaves-list {
-      list-style: none;
-      padding: 0;
-    }
-
-    .slave-item {
-      padding: 10px;
-      background: white;
-      margin-bottom: 10px;
-      border-radius: 5px;
-      border-left: 4px solid #667eea;
-    }
-
-    .no-slaves {
-      color: #999;
-      text-align: center;
-      padding: 20px;
-    }
-
-    .player-section {
-      background: #f9f9f9;
-      padding: 20px;
-      border-radius: 10px;
-    }
-
-    .file-input-group, .url-input-group {
-      margin-bottom: 20px;
-    }
-
-    .file-input {
-      width: 100%;
-      padding: 10px;
-      border: 2px solid #ddd;
-      border-radius: 8px;
-    }
-
-    .player-controls {
-      display: flex;
-      gap: 10px;
-      margin: 20px 0;
-    }
-
-    .volume-control {
-      display: flex;
-      align-items: center;
-      gap: 15px;
-      margin: 20px 0;
-    }
-
-    .volume-slider {
-      flex: 1;
-      cursor: pointer;
-    }
-
-    .progress-bar {
-      width: 100%;
-      height: 6px;
-      background: #ddd;
-      border-radius: 3px;
-      overflow: hidden;
-      margin: 20px 0;
-      cursor: pointer;
-    }
-
-    .progress {
-      height: 100%;
-      background: linear-gradient(90deg, #667eea, #764ba2);
-      transition: width 0.1s;
-    }
-
-    .time-display {
-      text-align: center;
-      color: #999;
-      font-size: 0.9rem;
-      margin-bottom: 20px;
-    }
-
-    .track-info {
-      background: white;
-      padding: 15px;
-      border-radius: 8px;
-      margin-top: 20px;
-    }
-
-    .track-info p {
-      margin: 5px 0;
-      color: #666;
-    }
-
     @media (max-width: 600px) {
-      .create-room-panel, .room-panel {
-        padding: 20px;
-      }
-
-      .player-controls {
-        flex-direction: column;
-      }
-
-      .btn-control {
-        width: 100%;
-      }
-
-      .room-header {
-        flex-direction: column;
-        gap: 15px;
-      }
-
-      .volume-control {
-        flex-direction: column;
-        align-items: flex-start;
-      }
+      .grid { grid-template-columns: 1fr; }
+      .player-card { grid-column: 1; }
+      .qr-img { width: 160px; height: 160px; }
+      .topbar { flex-wrap: wrap; gap: 10px; }
     }
   `]
 })
@@ -410,16 +277,12 @@ export class MasterComponent implements OnInit, OnDestroy {
   errorMessage = '';
   slaves: any[] = [];
 
-  audioUrl = '';
   isPlaying = false;
   volume = 100;
-  currentTime = 0;
-  duration = 0;
   progressPercent = 0;
   currentTrack = { title: '', artist: '', source: '' };
-
   currentTimeDisplay = '0:00';
-  durationDisplay = '0:00';
+  durationDisplay   = '0:00';
 
   private destroy$ = new Subject<void>();
   private audioElement: HTMLAudioElement | null = null;
@@ -443,116 +306,63 @@ export class MasterComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.audioElement = this.audioService.initAudio();
     if (this.audioElement) {
-      this.audioElement.addEventListener('timeupdate', () => this.updateProgress());
+      this.audioElement.addEventListener('timeupdate',     () => this.updateProgress());
       this.audioElement.addEventListener('loadedmetadata', () => this.updateDuration());
-      this.audioElement.addEventListener('play', () => { this.isPlaying = true; });
+      this.audioElement.addEventListener('play',  () => { this.isPlaying = true; });
       this.audioElement.addEventListener('pause', () => { this.isPlaying = false; });
     }
   }
 
   createRoom(): void {
     if (!this.roomForm.valid) return;
-
     this.isCreating = true;
     this.errorMessage = '';
-
     const { roomName, password } = this.roomForm.value;
-
-    this.roomService.createRoom(roomName, password).pipe(
-      takeUntil(this.destroy$)
-    ).subscribe({
-      next: (response) => {
-        this.roomId = response.roomId;
-        this.roomName = response.name;
-        this.qrCode = response.qrCode;
-        this.roomCreated = true;
-        this.isCreating = false;
-
-        // Conectar WebSocket
+    this.roomService.createRoom(roomName, password).pipe(takeUntil(this.destroy$)).subscribe({
+      next: (r) => {
+        this.roomId = r.roomId; this.roomName = r.name; this.qrCode = r.qrCode;
+        this.roomCreated = true; this.isCreating = false;
         this.connectWebSocket();
       },
-      error: (error) => {
-        this.errorMessage = 'Error al crear la sala. Intenta de nuevo.';
-        this.isCreating = false;
-        console.error(error);
-      }
+      error: () => { this.errorMessage = 'Error al crear la sala.'; this.isCreating = false; }
     });
   }
 
   connectWebSocket(): void {
-    this.wsService.connect().pipe(
-      takeUntil(this.destroy$)
-    ).subscribe({
+    this.wsService.connect().pipe(takeUntil(this.destroy$)).subscribe({
       next: () => {
         if (!this.wsConnected) {
           this.wsConnected = true;
-          // Conectar como maestro
-          this.wsService.send({
-            type: 'master:connect',
-            payload: {
-              room_id: this.roomId,
-              device_name: 'Maestro Principal'
-            }
-          });
-
-          // Escuchar mensajes
+          this.wsService.send({ type: 'master:connect', payload: { room_id: this.roomId, device_name: 'Anfitrión' } });
           this.listenToWebSocket();
-
-          // Iniciar sincronización
           this.startSyncInterval();
         }
-      },
-      error: (error) => {
-        console.error('Error conectando WebSocket:', error);
       }
     });
   }
 
   listenToWebSocket(): void {
-    this.wsService.message$.pipe(
-      takeUntil(this.destroy$)
-    ).subscribe((message: any) => {
-      const { type, payload } = message;
-
-      if (type === 'slaves:updated') {
-        this.slaves = payload.slaves || [];
-      } else if (type === 'webrtc:request-connection') {
-        // Un slave pide conexión WebRTC → iniciar como master
-        this.webRtcService.connectToSlave(payload.slaveId);
-      } else if (type === 'webrtc:answer') {
-        this.webRtcService.handleAnswer(payload.slaveId, payload.answer);
-      } else if (type === 'webrtc:ice') {
-        this.webRtcService.addIceCandidate(payload.slaveId, payload.candidate);
-      } else if (type === 'error') {
-        console.error('Error del servidor:', payload.message);
-      }
+    this.wsService.message$.pipe(takeUntil(this.destroy$)).subscribe((msg: any) => {
+      const { type, payload } = msg;
+      if (type === 'slaves:updated') { this.slaves = payload.slaves || []; }
+      else if (type === 'webrtc:request-connection') { this.webRtcService.connectToSlave(payload.slaveId); }
+      else if (type === 'webrtc:answer') { this.webRtcService.handleAnswer(payload.slaveId, payload.answer); }
+      else if (type === 'webrtc:ice')    { this.webRtcService.addIceCandidate(payload.slaveId, payload.candidate); }
     });
   }
 
   startSyncInterval(): void {
     this.syncInterval = setInterval(() => {
       if (this.audioElement && this.wsService.isConnected()) {
-        this.wsService.send({
-          type: 'master:timeUpdate',
-          payload: {
-            currentTime: this.audioElement.currentTime * 1000,
-            duration: this.audioElement.duration * 1000
-          }
-        });
+        this.wsService.send({ type: 'master:timeUpdate', payload: { currentTime: this.audioElement.currentTime * 1000, duration: this.audioElement.duration * 1000 } });
       }
     }, 1000);
   }
 
   togglePlay(): void {
     if (!this.audioElement) return;
-
-    if (this.isPlaying) {
-      this.audioElement.pause();
-      this.wsService.send({ type: 'master:pause' });
-    } else {
-      this.audioElement.play();
-      this.wsService.send({ type: 'master:play' });
-    }
+    if (this.isPlaying) { this.audioElement.pause(); this.wsService.send({ type: 'master:pause' }); }
+    else                { this.audioElement.play();  this.wsService.send({ type: 'master:play'  }); }
   }
 
   onFileSelected(event: any): void {
@@ -560,106 +370,43 @@ export class MasterComponent implements OnInit, OnDestroy {
     if (file && this.audioElement) {
       this.audioService.loadFile(file);
       this.currentTrack.title = file.name;
-      // Capturar el stream del audio element para WebRTC
       this.webRtcService.captureAudioElement(this.audioElement).then(() => {
-        // Si ya hay slaves conectados, reconectarlos con stream
-        this.slaves.forEach(slave => {
-          this.webRtcService.connectToSlave(slave.id);
-        });
+        this.slaves.forEach(s => this.webRtcService.connectToSlave(s.id));
       });
       this.broadcastTrackChange();
     }
   }
 
-  setAudioUrl(): void {
-    if (!this.audioUrl) return;
-
-    // Detectar plataforma de audio automáticamente
-    const audioSource = this.platformService.detectAudioSource(this.audioUrl);
-    
-    console.log(`[AUDIO] Detectado: ${audioSource.platform || 'URL Directo'}`, audioSource);
-
-    // Obtener URL reproducible
-    const playableUrl = this.platformService.getPlayableUrl(audioSource);
-
-    if (playableUrl) {
-      this.audioService.setAudioSource(playableUrl);
-      
-      // Mostrar información de la plataforma
-      this.currentTrack.title = audioSource.title || this.platformService.formatPlatformInfo(audioSource);
-      this.currentTrack.artist = audioSource.artist || (audioSource.platform || 'Audio');
-      this.currentTrack.source = this.audioUrl;
-
-      // Obtener metadatos si están disponibles
-      this.platformService.fetchMetadata(audioSource).subscribe({
-        next: (metadata) => {
-          if (metadata) {
-            this.currentTrack.title = metadata.title;
-            this.currentTrack.artist = metadata.artist;
-          }
-          this.broadcastTrackChange();
-        },
-        error: () => this.broadcastTrackChange()
-      });
-    } else {
-      console.error('[AUDIO] No se pudo obtener URL reproducible');
-    }
-  }
-
   setVolume(): void {
     this.audioService.setVolume(this.volume);
-    this.wsService.send({
-      type: 'master:volumeChange',
-      payload: { volume: this.volume }
-    });
+    this.wsService.send({ type: 'master:volumeChange', payload: { volume: this.volume } });
   }
 
-  previousTrack(): void {
-    this.wsService.send({ type: 'master:previous' });
-  }
-
-  nextTrack(): void {
-    this.wsService.send({ type: 'master:next' });
-  }
+  previousTrack(): void { this.wsService.send({ type: 'master:previous' }); }
+  nextTrack():     void { this.wsService.send({ type: 'master:next'     }); }
 
   broadcastTrackChange(): void {
-    this.wsService.send({
-      type: 'master:trackChange',
-      payload: {
-        track: this.currentTrack
-      }
-    });
+    this.wsService.send({ type: 'master:trackChange', payload: { track: this.currentTrack } });
   }
 
   updateProgress(): void {
     if (!this.audioElement) return;
-    this.currentTime = this.audioElement.currentTime * 1000;
     this.progressPercent = (this.audioElement.currentTime / this.audioElement.duration) * 100 || 0;
     this.currentTimeDisplay = this.formatTime(this.audioElement.currentTime);
   }
 
   updateDuration(): void {
     if (!this.audioElement) return;
-    this.duration = this.audioElement.duration * 1000;
     this.durationDisplay = this.formatTime(this.audioElement.duration);
   }
 
-  formatTime(seconds: number): string {
-    if (!seconds || isNaN(seconds)) return '0:00';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  formatTime(s: number): string {
+    if (!s || isNaN(s)) return '0:00';
+    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   }
 
   exitRoom(): void {
-    this.roomService.closeRoom(this.roomId).pipe(
-      takeUntil(this.destroy$)
-    ).subscribe({
-      next: () => {
-        this.cleanup();
-        this.modeChange.emit(null);
-      }
-    });
+    this.roomService.closeRoom(this.roomId).pipe(takeUntil(this.destroy$)).subscribe({ next: () => { this.cleanup(); this.modeChange.emit(null); } });
   }
 
   private cleanup(): void {
@@ -669,9 +416,5 @@ export class MasterComponent implements OnInit, OnDestroy {
     this.webRtcService.destroy();
   }
 
-  ngOnDestroy(): void {
-    this.cleanup();
-    this.destroy$.next();
-    this.destroy$.complete();
-  }
+  ngOnDestroy(): void { this.cleanup(); this.destroy$.next(); this.destroy$.complete(); }
 }
