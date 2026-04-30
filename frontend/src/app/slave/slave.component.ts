@@ -319,33 +319,65 @@ export class SlaveComponent implements OnInit, OnDestroy {
     if (rid) { this.manualRoomId = rid; this.joinRoom(); }
   }
 
+  private qrScanner: any = null;
+
   toggleQrScanner(): void {
     this.showQrScanner = !this.showQrScanner;
-    if (this.showQrScanner) this.startQrScanner();
+    if (this.showQrScanner) {
+      // Esperar a que Angular renderice el div#qr-video antes de iniciar
+      setTimeout(() => this.startQrScanner(), 200);
+    } else {
+      this.stopQrScannerInstance();
+    }
   }
 
   toggleManualEntry(): void { this.showManualEntry = !this.showManualEntry; }
 
-  stopQrScanner(): void { this.showQrScanner = false; }
+  stopQrScanner(): void {
+    this.stopQrScannerInstance();
+    this.showQrScanner = false;
+  }
+
+  private stopQrScannerInstance(): void {
+    if (this.qrScanner) {
+      this.qrScanner.stop().catch(() => {});
+      this.qrScanner = null;
+    }
+  }
 
   startQrScanner(): void {
     import('html5-qrcode').then(({ Html5Qrcode }) => {
-      const scanner = new Html5Qrcode('qr-video');
-      scanner.start(
+      const el = document.getElementById('qr-video');
+      if (!el) {
+        this.qrError = 'Error: contenedor de cámara no encontrado';
+        return;
+      }
+      this.qrScanner = new Html5Qrcode('qr-video');
+      this.qrScanner.start(
         { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
+        { fps: 10, qrbox: { width: 220, height: 220 } },
         (decoded: string) => {
           try {
             const url = new URL(decoded);
             const rid = url.searchParams.get('room');
-            if (rid) { this.manualRoomId = rid; scanner.stop().then(() => { this.showQrScanner = false; this.joinRoom(); }); }
+            if (rid) {
+              this.manualRoomId = rid;
+              this.stopQrScannerInstance();
+              this.showQrScanner = false;
+              this.joinRoom();
+            }
           } catch {
             this.manualRoomId = decoded.trim();
-            scanner.stop().then(() => { this.showQrScanner = false; this.joinRoom(); });
+            this.stopQrScannerInstance();
+            this.showQrScanner = false;
+            this.joinRoom();
           }
         },
-        () => {}
-      ).catch((e: any) => { this.qrError = 'No se pudo acceder a la cámara: ' + e; });
+        () => { /* ignorar errores de frame */ }
+      ).catch((e: any) => {
+        this.qrError = 'No se pudo acceder a la cámara. Verifica los permisos.';
+        console.error('[QR]', e);
+      });
     });
   }
 
@@ -443,6 +475,12 @@ export class SlaveComponent implements OnInit, OnDestroy {
 
   resetJoin(): void { this.showPasswordInput = false; this.password = ''; this.manualRoomId = ''; this.errorMessage = ''; }
   disconnect(): void { this.cleanup(); this.connected = false; this.modeChange.emit(null); }
-  private cleanup(): void { if (this.syncCheckInterval) clearInterval(this.syncCheckInterval); this.wsService.disconnect(); this.audioService.destroy(); this.webRtcService.destroy(); }
+  private cleanup(): void {
+    if (this.syncCheckInterval) clearInterval(this.syncCheckInterval);
+    this.stopQrScannerInstance();
+    this.wsService.disconnect();
+    this.audioService.destroy();
+    this.webRtcService.destroy();
+  }
   ngOnDestroy(): void { this.cleanup(); this.destroy$.next(); this.destroy$.complete(); }
 }
