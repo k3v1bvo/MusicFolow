@@ -7,6 +7,8 @@ import { WebSocketService } from '../services/websocket.service';
 import { AudioService } from '../services/audio.service';
 import { AudioPlatformService } from '../services/audio-platform.service';
 import { WebRtcService } from '../services/webrtc.service';
+import { NativeAudioService } from '../services/native-audio.service';
+import { Capacitor } from '@capacitor/core';
 
 @Component({
   selector: 'app-master',
@@ -148,11 +150,11 @@ import { WebRtcService } from '../services/webrtc.service';
             <div class="load-section">
               <p class="section-title">Fuente de Audio</p>
 
-              <!-- System Audio (desktop) -->
+              <!-- System Audio -->
               <button class="btn-neon btn-cyan full-btn" (click)="captureSystemAudio()" style="margin-bottom:10px">
-                {{ isCapturingSystem ? '🔴 Transmitiendo sistema...' : '🖥️ Capturar Audio del Sistema' }}
+                {{ isCapturingSystem ? '🔴 Transmitiendo sistema...' : (isNative ? '📱 Capturar Audio Interno (APK)' : '🖥️ Capturar Audio del Sistema') }}
               </button>
-              <p class="hint-text">En PC: comparte el audio de tu sistema operativo (como Bluetooth)</p>
+              <p class="hint-text">{{ isNative ? 'Android: captura todo el audio del sistema operativo' : 'PC: marca la opción Compartir audio del sistema' }}</p>
 
               <div class="divider-row"><span>o</span></div>
 
@@ -296,6 +298,7 @@ export class MasterComponent implements OnInit, OnDestroy {
   currentTimeDisplay = '0:00';
   durationDisplay   = '0:00';
   isCapturingSystem = false;
+  get isNative(): boolean { return Capacitor.isNativePlatform(); }
 
   private destroy$ = new Subject<void>();
   private audioElement: HTMLAudioElement | null = null;
@@ -308,7 +311,8 @@ export class MasterComponent implements OnInit, OnDestroy {
     private wsService: WebSocketService,
     private audioService: AudioService,
     private platformService: AudioPlatformService,
-    private webRtcService: WebRtcService
+    private webRtcService: WebRtcService,
+    private nativeAudio: NativeAudioService
   ) {
     this.roomForm = this.fb.group({
       roomName: ['', [Validators.required, Validators.minLength(3)]],
@@ -393,30 +397,20 @@ export class MasterComponent implements OnInit, OnDestroy {
 
   async captureSystemAudio(): Promise<void> {
     try {
-      const stream = await (navigator.mediaDevices as any).getDisplayMedia({
-        video: { frameRate: 1 },
-        audio: { echoCancellation: false, noiseSuppression: false, sampleRate: 44100 }
-      });
-      const audioTracks = stream.getAudioTracks();
-      if (audioTracks.length === 0) {
-        alert('No se capturó audio. Asegúrate de marcar "Compartir audio del sistema" en el diálogo.');
-        stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+      const stream = await this.nativeAudio.captureSystemAudio();
+      if (!stream) {
+        if (!this.nativeAudio.isNative) {
+          alert('No se capturó audio. En PC, asegúrate de marcar "Compartir audio del sistema" en el diálogo.');
+        }
         return;
       }
-      // Detener video (no lo necesitamos)
-      stream.getVideoTracks().forEach((t: MediaStreamTrack) => t.stop());
-      const audioStream = new MediaStream(audioTracks);
-      this.webRtcService.setSystemAudioStream(audioStream);
+      this.webRtcService.setSystemAudioStream(stream);
       this.slaves.forEach(s => this.webRtcService.connectToSlave(s.id));
       this.isCapturingSystem = true;
-      this.currentTrack.title = '🖥️ Audio del sistema';
+      this.currentTrack.title = this.nativeAudio.isNative ? '📱 Audio del sistema (APK)' : '🖥️ Audio del sistema';
       this.broadcastTrackChange();
-      // Detectar cuando el usuario deja de compartir
-      audioTracks[0].onended = () => { this.isCapturingSystem = false; };
     } catch (e: any) {
-      if (e.name !== 'NotAllowedError') {
-        alert('Error capturando audio del sistema: ' + e.message);
-      }
+      console.error('[CaptureSystem]', e);
     }
   }
 

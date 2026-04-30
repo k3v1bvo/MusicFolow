@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MusicFollow</string>
+    <string name="title_activity_main">MusicFollow</string>
+    <string name="package_name">com.musicfollow.app</string>
+    <string name="custom_url_scheme">com.musicfollow.app</string>
+</resources>
