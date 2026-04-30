@@ -9,10 +9,10 @@
       }
     },
     {
-      "src": "frontend/angular.json",
+      "src": "frontend/package.json",
       "use": "@vercel/static-build",
       "config": {
-        "distDir": "frontend/dist/musicfollow"
+        "distDir": "dist/frontend"
       }
     }
   ],
@@ -23,7 +23,7 @@
     },
     {
       "src": "/(.*)",
-      "dest": "frontend/dist/musicfollow/index.html"
+      "dest": "frontend/dist/frontend/index.html"
     }
   ],
   "env": {
